@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finance & Habits Tracker</title>
+</head>
+<body>
+    <h1>Finance & Habits Tracker</h1>
+
+    <div class="section">
+        <h2>Agregar Transacción</h2>
+        <div class="form-group">
+            <label>Tipo:</label>
+            <select id="transactionType">
+                <option value="income">Ingreso</option>
+                <option value="expense">Gasto</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Descripción:</label>
+            <input type="text" id="transactionDescription" placeholder="Ej: Salario, Compra supermercado">
+        </div>
+        <div class="form-group">
+            <label>Monto:</label>
+            <input type="number" id="transactionAmount" placeholder="0.00" step="0.01">
+        </div>
+        <button onclick="addTransaction()">Agregar Transacción</button>
+    </div>
+
+    <div class="section">
+        <h2>Registrar Hábito</h2>
+        <div class="form-group">
+            <label>Nombre del Hábito:</label>
+            <input type="text" id="habitName" placeholder="Ej: Ejercicio, Leer, Meditar">
+        </div>
+        <button onclick="addHabit()">Marcar Hábito Completado</button>
+    </div>
+
+    <div class="section">
+        <h2>Resumen</h2>
+        <div id="summary" class="summary">
+            <p>Cargando resumen...</p>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Transacciones Recientes</h2>
+        <div id="recentTransactions">
+            <p>No hay transacciones</p>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Hábitos Recientes</h2>
+        <div id="recentHabits">
+            <p>No hay hábitos registrados</p>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
