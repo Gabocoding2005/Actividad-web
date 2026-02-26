@@ -1,38 +1,60 @@
 from flask import Flask, request, jsonify
 from datetime import datetime
-import sqlite3
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, func
+from sqlalchemy.orm import declarative_base, sessionmaker, scoped_session
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 app = Flask(__name__)
 
-def get_db():
-    conn = sqlite3.connect('tracker.db')
-    conn.row_factory = sqlite3.Row
-    return conn
+DB_USER = os.getenv('DB_USER', 'root')
+DB_PASSWORD = os.getenv('DB_PASSWORD', '')
+DB_HOST = os.getenv('DB_HOST', 'localhost')
+DB_PORT = os.getenv('DB_PORT', '3306')
+DB_NAME = os.getenv('DB_NAME', 'tracker_db')
+
+DATABASE_URL = f'mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
+
+engine = create_engine(DATABASE_URL, echo=False, pool_pre_ping=True)
+Session = scoped_session(sessionmaker(bind=engine))
+Base = declarative_base()
+
+class Transaction(Base):
+    __tablename__ = 'transactions'
+    
+    id = Column(Integer, primary_key=True)
+    type = Column(String(50), nullable=False)
+    description = Column(String(200), nullable=False)
+    amount = Column(Float, nullable=False)
+    date = Column(DateTime, nullable=False, default=datetime.now)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'type': self.type,
+            'description': self.description,
+            'amount': self.amount,
+            'date': self.date.strftime('%Y-%m-%d %H:%M:%S')
+        }
+
+class Habit(Base):
+    __tablename__ = 'habits'
+    
+    id = Column(Integer, primary_key=True)
+    name = Column(String(200), nullable=False)
+    date = Column(DateTime, nullable=False, default=datetime.now)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'date': self.date.strftime('%Y-%m-%d %H:%M:%S')
+        }
 
 def init_db():
-    conn = get_db()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            type TEXT NOT NULL,
-            description TEXT NOT NULL,
-            amount REAL NOT NULL,
-            date TEXT NOT NULL
-        )
-    ''')
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS habits (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            date TEXT NOT NULL
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
+    Base.metadata.create_all(engine)
 
 @app.after_request
 def after_request(response):
@@ -44,108 +66,128 @@ def after_request(response):
 @app.route('/api/transaction', methods=['POST'])
 def add_transaction():
     data = request.get_json()
+    session = Session()
     
-    conn = get_db()
-    cursor = conn.cursor()
-    
-    date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    
-    cursor.execute(
-        'INSERT INTO transactions (type, description, amount, date) VALUES (?, ?, ?, ?)',
-        (data.get('type'), data.get('description'), float(data.get('amount')), date)
-    )
-    
-    conn.commit()
-    transaction_id = cursor.lastrowid
-    conn.close()
-    
-    return jsonify({
-        'success': True,
-        'message': 'Transacción agregada exitosamente',
-        'transaction': {
-            'id': transaction_id,
-            'type': data.get('type'),
-            'description': data.get('description'),
-            'amount': float(data.get('amount')),
-            'date': date
-        }
-    }), 201
+    try:
+        transaction = Transaction(
+            type=data.get('type'),
+            description=data.get('description'),
+            amount=float(data.get('amount')),
+            date=datetime.now()
+        )
+        
+        session.add(transaction)
+        session.commit()
+        
+        result = transaction.to_dict()
+        session.close()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Transacción agregada exitosamente',
+            'transaction': result
+        }), 201
+    except Exception as e:
+        session.rollback()
+        session.close()
+        return jsonify({
+            'success': False,
+            'message': f'Error al agregar transacción: {str(e)}'
+        }), 500
 
 @app.route('/api/habit', methods=['POST'])
 def add_habit():
     data = request.get_json()
+    session = Session()
     
-    conn = get_db()
-    cursor = conn.cursor()
-    
-    date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    
-    cursor.execute(
-        'INSERT INTO habits (name, date) VALUES (?, ?)',
-        (data.get('name'), date)
-    )
-    
-    conn.commit()
-    habit_id = cursor.lastrowid
-    conn.close()
-    
-    return jsonify({
-        'success': True,
-        'message': 'Hábito registrado exitosamente',
-        'habit': {
-            'id': habit_id,
-            'name': data.get('name'),
-            'date': date
-        }
-    }), 201
+    try:
+        habit = Habit(
+            name=data.get('name'),
+            date=datetime.now()
+        )
+        
+        session.add(habit)
+        session.commit()
+        
+        result = habit.to_dict()
+        session.close()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Hábito registrado exitosamente',
+            'habit': result
+        }), 201
+    except Exception as e:
+        session.rollback()
+        session.close()
+        return jsonify({
+            'success': False,
+            'message': f'Error al registrar hábito: {str(e)}'
+        }), 500
 
 @app.route('/api/summary', methods=['GET'])
 def get_summary():
-    conn = get_db()
-    cursor = conn.cursor()
+    session = Session()
     
-    cursor.execute("SELECT SUM(amount) FROM transactions WHERE type = 'income'")
-    total_income = cursor.fetchone()[0] or 0
-    
-    cursor.execute("SELECT SUM(amount) FROM transactions WHERE type = 'expense'")
-    total_expense = cursor.fetchone()[0] or 0
-    
-    balance = total_income - total_expense
-    
-    cursor.execute("SELECT COUNT(*) FROM transactions")
-    total_transactions = cursor.fetchone()[0]
-    
-    today = datetime.now().strftime('%Y-%m-%d')
-    cursor.execute("SELECT COUNT(*) FROM habits WHERE date LIKE ?", (f'{today}%',))
-    habits_today = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM habits")
-    total_habits = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT * FROM transactions ORDER BY id DESC LIMIT 5")
-    recent_transactions = [dict(row) for row in cursor.fetchall()]
-    
-    cursor.execute("SELECT * FROM habits ORDER BY id DESC LIMIT 5")
-    recent_habits = [dict(row) for row in cursor.fetchall()]
-    
-    conn.close()
-    
-    return jsonify({
-        'success': True,
-        'summary': {
-            'total_income': total_income,
-            'total_expense': total_expense,
-            'balance': balance,
-            'total_transactions': total_transactions,
-            'habits_today': habits_today,
-            'total_habits': total_habits
-        },
-        'recent_transactions': recent_transactions,
-        'recent_habits': recent_habits
-    }), 200
+    try:
+        total_income = session.query(func.sum(Transaction.amount)).filter(
+            Transaction.type == 'income'
+        ).scalar() or 0
+        
+        total_expense = session.query(func.sum(Transaction.amount)).filter(
+            Transaction.type == 'expense'
+        ).scalar() or 0
+        
+        balance = total_income - total_expense
+        
+        total_transactions = session.query(Transaction).count()
+        
+        today = datetime.now().date()
+        habits_today = session.query(Habit).filter(
+            func.date(Habit.date) == today
+        ).count()
+        
+        total_habits = session.query(Habit).count()
+        
+        recent_transactions = session.query(Transaction).order_by(
+            Transaction.id.desc()
+        ).limit(5).all()
+        
+        recent_habits = session.query(Habit).order_by(
+            Habit.id.desc()
+        ).limit(5).all()
+        
+        result = {
+            'success': True,
+            'summary': {
+                'total_income': float(total_income),
+                'total_expense': float(total_expense),
+                'balance': float(balance),
+                'total_transactions': total_transactions,
+                'habits_today': habits_today,
+                'total_habits': total_habits
+            },
+            'recent_transactions': [t.to_dict() for t in recent_transactions],
+            'recent_habits': [h.to_dict() for h in recent_habits]
+        }
+        
+        session.close()
+        return jsonify(result), 200
+    except Exception as e:
+        session.close()
+        return jsonify({
+            'success': False,
+            'message': f'Error al obtener resumen: {str(e)}'
+        }), 500
+
+@app.teardown_appcontext
+def shutdown_session(exception=None):
+    Session.remove()
 
 if __name__ == '__main__':
     init_db()
     print('Servidor iniciado en http://localhost:5000')
-    print('Base de datos SQLite inicializada')
+    print(f'Conectado a MySQL: {DB_HOST}:{DB_PORT}/{DB_NAME}')
+    print('Base de datos inicializada con SQLAlchemy')
+    print('Modelos: Transaction, Habit')
     app.run(debug=True, port=5000)
